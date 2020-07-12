@@ -4,6 +4,7 @@ set(test_names
       hello
       trivium
       cardio
+      rate
       ipv4
       ipv6
       kreyvium

@@ -1,0 +1,67 @@
+#!/bin/bash
+
+#
+#    (C) Copyright 2017 CEA LIST. All Rights Reserved.
+#    Contributor(s): Cingulata team (formerly Armadillo team)
+#
+#    This software is governed by the CeCILL-C license under French law and
+#    abiding by the rules of distribution of free software.  You can  use,
+#    modify and/ or redistribute the software under the terms of the CeCILL-C
+#    license as circulated by CEA, CNRS and INRIA at the following URL
+#    "http://www.cecill.info".
+#
+#    As a counterpart to the access to the source code and  rights to copy,
+#    modify and redistribute granted by the license, users are provided only
+#    with a limited warranty  and the software's author,  the holder of the
+#    economic rights,  and the successive licensors  have only  limited
+#    liability.
+#
+#    The fact that you are presently reading this means that you have had
+#    knowledge of the CeCILL-C license and that you accept its terms.
+#
+#
+
+CIRCUIT=@CIRCUIT@
+APPS_DIR=@APPS_DIR@
+
+mkdir -p input
+rm -f input/*.ct
+
+mkdir -p output
+rm -f output/*.ct
+
+# Generate keys
+echo "FHE key generation"
+$APPS_DIR/generate_keys
+
+echo "Input formatting & encryption"
+NR_THREADS=1
+
+KS=(241 210 225 219 92 43 197)
+
+#encrypt client data
+$APPS_DIR/helper --bit-cnt 2 --prefix %i:flags_         --suffix '' $((0  ^ KS[0]))   > clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:age_           --suffix '' $((25 ^ KS[1]))  >> clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:cash_          --suffix '' $((50 ^ KS[2]))  >> clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:saving_        --suffix '' $((80 ^ KS[3]))  >> clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:debt_          --suffix '' $((10 ^ KS[4]))  >> clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:income_        --suffix '' $((2  ^ KS[5]))  >> clear_data.data
+$APPS_DIR/helper --bit-cnt 8 --prefix %i:realestate_    --suffix '' $((50 ^ KS[6]))  >> clear_data.data
+#expected result 10+10+50+80-10+2*12+50
+sed -i 's/%/\n/g' clear_data.data
+sed -i '/^$/d' clear_data.data
+
+# encrypt 7*8-bit kreyvium ciphered inputs and homomorphically mined kreyvium key
+for (( i = 0; i < ${#KS[@]}; i++ )); do
+  TMP=`$APPS_DIR/helper --bit-cnt 8 --prefix "input/i:ks_"$i"_"  ${KS[i]}`
+  $APPS_DIR/encrypt  -v --threads $NR_THREADS $TMP
+done
+
+echo "FHE execution"
+time $APPS_DIR/dyn_omp $CIRCUIT --threads $NR_THREADS --clear-inps clear_data.data # -v
+
+echo "Output decryption"
+OUT_FILES=`ls -v output/*`
+$APPS_DIR/helper --from-bin --bit-cnt 8 `$APPS_DIR/decrypt  $OUT_FILES`
+
+
